@@ -2,32 +2,47 @@ package main
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/deimerin/gator-cli/internal/config"
 )
 
 func main() {
-	// Read config file
+	// read config file
 	cfg, err := config.Read()
 	if err != nil {
-		fmt.Println(err)
-		return
+		fmt.Println("Cant read the config file")
+		os.Exit(1)
 	}
 
-	// Set current user to my name
-	err = cfg.SetUser("deimerin")
+	// set state
+	st := state{
+		cfg: &cfg,
+	}
+
+	// make command struct and register login function
+	commandList := commands{
+		cmds: make(map[string]func(*state, command) error),
+	}
+	commandList.register("login", handlerLogin)
+
+	if len(os.Args) < 2 {
+		fmt.Println("Not enough arguments. args < 2")
+		os.Exit(1)
+	}
+
+	// new command from arguments
+	cmd := command{
+		name: os.Args[1],
+		args: os.Args[2:],
+	}
+
+	// run command
+
+	err = commandList.run(&st, cmd)
 	if err != nil {
 		fmt.Println(err)
-		return
+		os.Exit(1)
 	}
-
-	// Read the config file again and print the contents of the config struct to the terminal
-	cfg, err = config.Read()
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	fmt.Println(cfg)
 
 }
