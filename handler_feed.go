@@ -19,20 +19,32 @@ func handlerAddFeed(s *state, cmd command) error {
 	user, err := s.db.GetUser(context.Background(), s.cfg.CurrentUserName)
 
 	if err != nil {
-		return fmt.Errorf("user not found: %v", err)
+		return fmt.Errorf("user not found: %w", err)
 	}
 
 	feed, err := s.db.CreateFeed(context.Background(), database.CreateFeedParams{
 		ID:        uuid.New(),
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
 		Name:      feedName,
 		Url:       feedURL,
 		UserID:    user.ID,
 	})
 
 	if err != nil {
-		return fmt.Errorf("can't create new feed: %v", err)
+		return fmt.Errorf("can't create new feed: %w", err)
+	}
+
+	_, err = s.db.CreateFeedFollow(context.Background(), database.CreateFeedFollowParams{
+		ID:        uuid.New(),
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+		UserID:    feed.UserID,
+		FeedID:    feed.ID,
+	})
+
+	if err != nil {
+		return fmt.Errorf("Couldn't create a FeedFollow row: %w", err)
 	}
 
 	fmt.Printf("A new feed for %s has been created.\n", user.Name)
