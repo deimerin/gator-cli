@@ -2,8 +2,14 @@ package main
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"time"
+
+	"github.com/deimerin/gator-cli/internal/database"
+	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 func handlerAgg(s *state, cmd command) error {
@@ -29,42 +35,69 @@ func handlerAgg(s *state, cmd command) error {
 
 }
 
-/*
-Get the next feed to fetch from the DB.
-Mark it as fetched.
-Fetch the feed using the URL (we already wrote this function)
-Iterate over the items in the feed and print their titles to the console.
-*/
-
 func scrapeFeeds(s *state) error {
 
-	nextFeed, err := s.db.GetNextFeedToFetch(context.Background())
+	ctx := context.Background()
+
+	nextFeed, err := s.db.GetNextFeedToFetch(ctx)
 
 	if err != nil {
 		return fmt.Errorf("Couldn't get feed: %w", err)
 	}
 
-	err = s.db.MarkFeedFetched(context.Background(), nextFeed.ID)
+	err = s.db.MarkFeedFetched(ctx, nextFeed.ID)
 	if err != nil {
 		return fmt.Errorf("Couldn't mark feed: %w", err)
 	}
 
-	rssFeed, err := fetchFeed(context.Background(), nextFeed.Url)
+	rssFeed, err := fetchFeed(ctx, nextFeed.Url)
 	if err != nil {
 		return fmt.Errorf("Couldn't fetch feed: %w", err)
 	}
 
-	// Showing feed information
-	fmt.Println("-------------------------------------------------")
-	fmt.Printf("Feed Title: %s\n", rssFeed.Channel.Title)
-	fmt.Printf("Feed description: %s\n", rssFeed.Channel.Description)
-	fmt.Println("-------------------------------------------------")
-	fmt.Println("Feed Items: ")
+	for _, item := range rssFeed.Channel.Item {
 
-	for _, feed := range rssFeed.Channel.Item {
-		fmt.Printf(" - %s\n", feed.Title)
+		desc := sql.NullString{
+			String: item.Description,
+			Valid:  item.Description != "",
+		}
+
+		var pub sql.NullTime
+		if item.PubDate != "" {
+			t, err := time.Parse(time.RFC1123Z, item.PubDate)
+			if err == nil {
+				pub = sql.NullTime{
+					Time:  t,
+					Valid: true,
+				}
+			}
+
+		}
+
+		_, err := s.db.CreatePost(ctx, database.CreatePostParams{
+			ID:          uuid.New(),
+			CreatedAt:   time.Now().UTC(),
+			UpdatedAt:   time.Now().UTC(),
+			Title:       item.Title,
+			Url:         item.Link,
+			Description: desc,
+			PublishedAt: pub,
+			FeedID:      nextFeed.ID,
+		})
+
+		if err != nil {
+
+			var pgErr *pq.Error
+			if errors.As(err, &pgErr) {
+				if pgErr.Code == "23505" { // 23505 = unique_violation
+					continue
+				}
+			}
+			fmt.Println("error creating post entry.")
+			continue
+		}
+
 	}
-	fmt.Println("-------------------------------------------------")
 
 	return nil
 }
